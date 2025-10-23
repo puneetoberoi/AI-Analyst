@@ -1,0 +1,160 @@
+# .github/workflows/test_setup.yml
+name: Test Setup
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  test_environment:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Test API Keys
+      env:
+        ALPHAVANTAGE_KEY: ${{ secrets.ALPHAVANTAGE_KEY }}
+        COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+        FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+        NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+        SMTP_USER: ${{ secrets.SMTP_USER }}
+        SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      run: |
+        python -c "
+        import os
+        
+        required_keys = [
+            'ALPHAVANTAGE_KEY',
+            'COHERE_API_KEY', 
+            'FINNHUB_KEY',
+            'GEMINI_API_KEY',
+            'GROQ_API_KEY',
+            'HUGGINGFACE_API_KEY',
+            'NEWSAPI_KEY',
+            'SMTP_USER',
+            'SMTP_PASS'
+        ]
+        
+        print('🔐 Checking API Keys...')
+        missing = []
+        for key in required_keys:
+            if os.environ.get(key):
+                print(f'✅ {key}: Found')
+            else:
+                print(f'❌ {key}: Missing')
+                missing.append(key)
+        
+        if missing:
+            print(f'\n❌ Missing keys: {missing}')
+            exit(1)
+        else:
+            print('\n✅ All API keys configured!')
+        "
+    
+    - name: Test Email Connection
+      env:
+        SMTP_USER: ${{ secrets.SMTP_USER }}
+        SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      run: |
+        python -c "
+        import imaplib
+        import os
+        
+        try:
+            mail = imaplib.IMAP4_SSL('imap.gmail.com')
+            mail.login(os.environ['SMTP_USER'], os.environ['SMTP_PASS'])
+            mail.select('inbox')
+            print('✅ Email connection successful!')
+            mail.logout()
+        except Exception as e:
+            print(f'❌ Email connection failed: {e}')
+            exit(1)
+        "
+    
+    - name: Test Market Data
+      env:
+        ALPHAVANTAGE_KEY: ${{ secrets.ALPHAVANTAGE_KEY }}
+        FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+      run: |
+        python -c "
+        import yfinance as yf
+        
+        try:
+            stock = yf.Ticker('AAPL')
+            info = stock.info
+            print(f'✅ YFinance working! AAPL Price: {info.get(\"currentPrice\", \"N/A\")}')
+        except Exception as e:
+            print(f'❌ YFinance failed: {e}')
+        "
+    
+    - name: Test LLM Connections
+      env:
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      run: |
+        python -c "
+        import os
+        
+        # Test Groq
+        try:
+            from groq import Groq
+            client = Groq(api_key=os.environ['GROQ_API_KEY'])
+            print('✅ Groq client initialized')
+        except Exception as e:
+            print(f'⚠️ Groq initialization failed: {e}')
+        
+        # Test Gemini
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=os.environ['GEMINI_API_KEY'])
+            print('✅ Gemini configured')
+        except Exception as e:
+            print(f'⚠️ Gemini configuration failed: {e}')
+        
+        # Test Cohere
+        try:
+            import cohere
+            co = cohere.Client(os.environ['COHERE_API_KEY'])
+            print('✅ Cohere client initialized')
+        except Exception as e:
+            print(f'⚠️ Cohere initialization failed: {e}')
+        "
+    
+    - name: Verify File Structure
+      run: |
+        echo "📁 Checking file structure..."
+        
+        # Check if directories exist
+        for dir in src src/collectors src/analyzers src/ai_models src/portfolio src/utils data data/cache data/knowledge_base data/predictions config; do
+          if [ -d "$dir" ]; then
+            echo "✅ Directory exists: $dir"
+          else
+            echo "❌ Missing directory: $dir"
+            mkdir -p "$dir"
+            echo "  Created: $dir"
+          fi
+        done
+        
+        # Check if key files exist
+        for file in data/portfolio.json data/questions_queue.json requirements.txt; do
+          if [ -f "$file" ]; then
+            echo "✅ File exists: $file"
+          else
+            echo "❌ Missing file: $file"
+          fi
+        done
