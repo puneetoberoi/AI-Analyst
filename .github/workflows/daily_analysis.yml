@@ -1,0 +1,57 @@
+# .github/workflows/daily_analysis.yml
+name: Daily Market Analysis
+
+on:
+  schedule:
+    - cron: '0 21 * * 1-5'  # 9 PM UTC (4 PM EST after market close)
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Run Analysis Pipeline
+      env:
+        ALPHAVANTAGE_KEY: ${{ secrets.ALPHAVANTAGE_KEY }}
+        COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+        FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+        NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+      run: |
+        python -m src.main --mode analysis
+    
+    - name: Send Email Report
+      env:
+        SMTP_USER: ${{ secrets.SMTP_USER }}
+        SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      run: |
+        python -m src.utils.email_sender
+    
+    - name: Update Knowledge Base
+      run: |
+        git config --local user.email "bot@financial-ai.com"
+        git config --local user.name "Financial AI Bot"
+        git add data/
+        git diff --quiet && git diff --staged --quiet || git commit -m "Update analysis results and knowledge base"
+        git push
