@@ -1,0 +1,13 @@
+# data/portfolio.json
+{
+  "stocks": [
+    {"symbol": "AAPL", "shares": 20, "avg_cost": 150.00},
+    {"symbol": "GOOGL", "shares": 5, "avg_cost": 140.00}
+  ],
+  "crypto": [
+    {"symbol": "BTC-USD", "amount": 0.1, "avg_cost": 45000}
+  ],
+  "commodities": [
+    {"symbol": "CGL.C", "shares": 20, "avg_cost": 180.00}
+  ]
+}
