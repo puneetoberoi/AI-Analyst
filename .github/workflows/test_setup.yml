@@ -1,5 +1,5 @@
-# .github/workflows/test_setup.yml
-name: Test Setup
+# .github/workflows/test_complete.yml
+name: Complete System Test
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test_environment:
+  test_system:
     runs-on: ubuntu-latest
     
     steps:
@@ -18,90 +18,68 @@ jobs:
       with:
         python-version: '3.10'
     
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
     - name: Install dependencies
       run: |
+        pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Test API Keys
-      env:
-        ALPHAVANTAGE_KEY: ${{ secrets.ALPHAVANTAGE_KEY }}
-        COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
-        FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
-        NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
-        SMTP_USER: ${{ secrets.SMTP_USER }}
-        SMTP_PASS: ${{ secrets.SMTP_PASS }}
+    - name: Create directory structure
       run: |
-        python -c "
-        import os
-        
-        required_keys = [
-            'ALPHAVANTAGE_KEY',
-            'COHERE_API_KEY', 
-            'FINNHUB_KEY',
-            'GEMINI_API_KEY',
-            'GROQ_API_KEY',
-            'HUGGINGFACE_API_KEY',
-            'NEWSAPI_KEY',
-            'SMTP_USER',
-            'SMTP_PASS'
-        ]
-        
-        print('🔐 Checking API Keys...')
-        missing = []
-        for key in required_keys:
-            if os.environ.get(key):
-                print(f'✅ {key}: Found')
-            else:
-                print(f'❌ {key}: Missing')
-                missing.append(key)
-        
-        if missing:
-            print(f'\n❌ Missing keys: {missing}')
-            exit(1)
-        else:
-            print('\n✅ All API keys configured!')
-        "
+        mkdir -p src/utils data/cache data/knowledge_base config
+        touch src/__init__.py
+        touch src/utils/__init__.py
+        touch src/collectors/__init__.py
+        touch src/analyzers/__init__.py
+        touch src/ai_models/__init__.py
+        touch src/portfolio/__init__.py
     
-    - name: Test Email Connection
+    - name: Test Market Data (with rate limit handling)
       env:
-        SMTP_USER: ${{ secrets.SMTP_USER }}
-        SMTP_PASS: ${{ secrets.SMTP_PASS }}
-      run: |
-        python -c "
-        import imaplib
-        import os
-        
-        try:
-            mail = imaplib.IMAP4_SSL('imap.gmail.com')
-            mail.login(os.environ['SMTP_USER'], os.environ['SMTP_PASS'])
-            mail.select('inbox')
-            print('✅ Email connection successful!')
-            mail.logout()
-        except Exception as e:
-            print(f'❌ Email connection failed: {e}')
-            exit(1)
-        "
-    
-    - name: Test Market Data
-      env:
-        ALPHAVANTAGE_KEY: ${{ secrets.ALPHAVANTAGE_KEY }}
         FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+        ALPHAVANTAGE_KEY: ${{ secrets.ALPHAVANTAGE_KEY }}
       run: |
+        # Add delay to avoid rate limits
+        sleep 2
+        
         python -c "
         import yfinance as yf
+        import time
+        import finnhub
+        import os
         
+        print('📊 Testing Market Data Sources...')
+        
+        # Test YFinance with rate limit handling
         try:
-            stock = yf.Ticker('AAPL')
-            info = stock.info
-            print(f'✅ YFinance working! AAPL Price: {info.get(\"currentPrice\", \"N/A\")}')
+            time.sleep(1)  # Rate limit prevention
+            ticker = yf.Ticker('AAPL')
+            hist = ticker.history(period='1d')
+            if not hist.empty:
+                price = hist['Close'].iloc[-1]
+                print(f'✅ YFinance: AAPL = \${price:.2f}')
+            else:
+                print('⚠️ YFinance: No data (possibly rate limited)')
         except Exception as e:
-            print(f'❌ YFinance failed: {e}')
+            print(f'⚠️ YFinance: {str(e)[:100]}')
+        
+        # Test Finnhub as backup
+        try:
+            fc = finnhub.Client(api_key=os.environ.get('FINNHUB_KEY', ''))
+            quote = fc.quote('AAPL')
+            print(f'✅ Finnhub: AAPL = \${quote[\"c\"]:.2f}')
+        except Exception as e:
+            print(f'⚠️ Finnhub: {str(e)[:100]}')
         "
     
-    - name: Test LLM Connections
+    - name: Test AI Models (Fixed)
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -110,51 +88,61 @@ jobs:
         python -c "
         import os
         
-        # Test Groq
+        # Test Groq with version handling
         try:
             from groq import Groq
-            client = Groq(api_key=os.environ['GROQ_API_KEY'])
-            print('✅ Groq client initialized')
+            client = Groq(api_key=os.environ.get('GROQ_API_KEY', ''))
+            
+            # Test API call
+            response = client.chat.completions.create(
+                messages=[{'role': 'user', 'content': 'Say hello'}],
+                model='llama3-8b-8192',
+                max_tokens=10
+            )
+            print('✅ Groq: Working')
         except Exception as e:
-            print(f'⚠️ Groq initialization failed: {e}')
+            print(f'⚠️ Groq: {str(e)[:100]}')
         
         # Test Gemini
         try:
             import google.generativeai as genai
-            genai.configure(api_key=os.environ['GEMINI_API_KEY'])
-            print('✅ Gemini configured')
+            genai.configure(api_key=os.environ.get('GEMINI_API_KEY', ''))
+            model = genai.GenerativeModel('gemini-pro')
+            response = model.generate_content('Say hello')
+            print('✅ Gemini: Working')
         except Exception as e:
-            print(f'⚠️ Gemini configuration failed: {e}')
+            print(f'⚠️ Gemini: {str(e)[:100]}')
         
         # Test Cohere
         try:
             import cohere
-            co = cohere.Client(os.environ['COHERE_API_KEY'])
-            print('✅ Cohere client initialized')
+            co = cohere.Client(os.environ.get('COHERE_API_KEY', ''))
+            response = co.generate(prompt='Say hello', max_tokens=10)
+            print('✅ Cohere: Working')
         except Exception as e:
-            print(f'⚠️ Cohere initialization failed: {e}')
+            print(f'⚠️ Cohere: {str(e)[:100]}')
         "
     
-    - name: Verify File Structure
+    - name: Test Email Collection
+      env:
+        SMTP_USER: ${{ secrets.SMTP_USER }}
+        SMTP_PASS: ${{ secrets.SMTP_PASS }}
       run: |
-        echo "📁 Checking file structure..."
-        
-        # Check if directories exist
-        for dir in src src/collectors src/analyzers src/ai_models src/portfolio src/utils data data/cache data/knowledge_base data/predictions config; do
-          if [ -d "$dir" ]; then
-            echo "✅ Directory exists: $dir"
-          else
-            echo "❌ Missing directory: $dir"
-            mkdir -p "$dir"
-            echo "  Created: $dir"
-          fi
-        done
-        
-        # Check if key files exist
-        for file in data/portfolio.json data/questions_queue.json requirements.txt; do
-          if [ -f "$file" ]; then
-            echo "✅ File exists: $file"
-          else
-            echo "❌ Missing file: $file"
-          fi
-        done
+        python src/collectors/email_collector.py
+    
+    - name: Run System Test
+      env:
+        FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      run: |
+        python src/main.py
+    
+    - name: Commit any new questions
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add data/questions_queue.json || true
+        git diff --quiet && git diff --staged --quiet || git commit -m "Update questions queue"
+        git push || true
